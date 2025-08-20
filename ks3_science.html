@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Key Stage 3 Science Assessment</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .toast{position:fixed;right:1rem;bottom:1rem;background:#111827;color:#fff;
+      padding:0.6rem 0.8rem;border-radius:0.75rem;box-shadow:0 10px 20px rgba(0,0,0,.2);
+      opacity:0;transform:translateY(10px);transition:.3s}
+    .toast.show{opacity:1;transform:translateY(0)}
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <div class="max-w-3xl mx-auto p-4 md:p-8">
+    <header class="mb-6">
+      <h1 class="text-2xl md:text-3xl font-bold">Key Stage 3 Science Assessment</h1>
+      <p class="text-sm text-slate-600">Mixed Biology, Chemistry and Physics.</p>
+    </header>
+
+    <!-- Setup -->
+    <section id="setup" class="bg-white rounded-2xl shadow p-4 md:p-6 space-y-4">
+      <div class="grid md:grid-cols-2 gap-4">
+        <label class="block">
+          <span class="text-sm font-medium">Student name</span>
+          <input id="studentName" class="mt-1 w-full rounded-xl border px-3 py-2" required />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium">Year group</span>
+          <input id="yearGroup" class="mt-1 w-full rounded-xl border px-3 py-2" placeholder="e.g. Year 8"/>
+        </label>
+        <label class="block md:col-span-2">
+          <span class="text-sm font-medium">Parent email</span>
+          <input id="parentEmail" type="email" class="mt-1 w-full rounded-xl border px-3 py-2" required />
+        </label>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button id="startBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white">Start assessment</button>
+      </div>
+    </section>
+
+    <!-- Exam -->
+    <section id="exam" class="hidden mt-6 bg-white rounded-2xl shadow p-4 md:p-6">
+      <div class="flex items-center justify-between">
+        <div class="text-sm"><span class="font-semibold">Student:</span> <span id="liveStudent">—</span></div>
+        <div class="text-sm"><span class="font-semibold">Time left:</span> <span id="timeLeft">—:—</span></div>
+      </div>
+      <div id="qContainer" class="mt-4"></div>
+      <div class="flex items-center justify-between mt-6">
+        <button id="prevBtn" class="px-4 py-2 rounded-xl bg-slate-200">Prev</button>
+        <div class="text-sm">Question <span id="qIndex">1</span> / <span id="qTotal">—</span></div>
+        <button id="nextBtn" class="px-4 py-2 rounded-xl bg-slate-200">Next</button>
+      </div>
+      <div class="mt-6 flex gap-3">
+        <button id="finishBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white">Finish & submit</button>
+      </div>
+    </section>
+
+    <!-- Result -->
+    <section id="result" class="hidden mt-6 bg-white rounded-2xl shadow p-4 md:p-6 space-y-4">
+      <h2 class="text-xl font-semibold">Assessment complete</h2>
+      <div id="studentSummary" class="text-slate-700 text-sm"></div>
+      <div id="nextSteps" class="rounded-xl border bg-emerald-50 text-emerald-900 p-4 text-sm hidden"></div>
+      <div id="teacherSummary" class="bg-slate-50 border rounded-xl p-4 text-sm"></div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast">Sending result…</div>
+
+<script>
+// GAS endpoint
+const GAS_URL = "https://script.google.com/macros/s/AKfycbypcYcwH-GDz4nxoAtZK0wKRbWxlxengilkvRIwSo8q-AhhfLaOZP-zhzHbPInR3Z0tzA/exec";
+
+// Question bank (KS3 Biology/Chemistry/Physics)
+const BANK = [
+  {id:"K3Bio1",topic:"Biology",type:"mcq",q:"Which organ pumps blood around the body?",opts:["Liver","Heart","Lungs","Kidney"],a:1},
+  {id:"K3Chem1",topic:"Chemistry",type:"mcq",q:"Chemical symbol for sodium is",opts:["S","So","Na","Sn"],a:2},
+  {id:"K3Phys1",topic:"Physics",type:"num",q:"Speed = distance/time: 100 m in 20 s → speed (m/s)",a:5},
+  {id:"K3Bio2",topic:"Biology",type:"mcq",q:"Plants make food by",opts:["Respiration","Photosynthesis","Digestion","Fermentation"],a:1},
+  {id:"K3Chem2",topic:"Chemistry",type:"mcq",q:"pH of a neutral solution",opts:["0","3","7","14"],a:2}
+];
+
+const $ = s=>document.querySelector(s);
+let QUESTIONS=[],idx=0,answers={},secondsLeft=900,timer=null;
+
+function renderQuestion(){
+  const q=QUESTIONS[idx];
+  $('#qIndex').textContent=idx+1; $('#qTotal').textContent=QUESTIONS.length;
+  let h=`<h3 class="text-lg font-medium">${q.q}</h3>`;
+  if(q.type==="mcq"){
+    h+=q.opts.map((opt,i)=>`<label class="block p-2"><input type="radio" name="ans" value="${i}" ${answers[q.id]==i?"checked":""}/> ${opt}</label>`).join("");
+  } else {
+    h+=`<input id="numAns" class="mt-2 w-full rounded border px-3 py-2" value="${answers[q.id]||""}"/>`;
+  }
+  $('#qContainer').innerHTML=h;
+  if(q.type==="mcq") document.querySelectorAll('input[name="ans"]').forEach(r=>r.onchange=e=>answers[q.id]=+e.target.value);
+  else $('#numAns').oninput=e=>answers[q.id]=e.target.value;
+}
+
+function start(){
+  QUESTIONS=[...BANK];
+  idx=0; answers={};
+  $('#setup').classList.add('hidden');
+  $('#exam').classList.remove('hidden');
+  $('#liveStudent').textContent=$('#studentName').value;
+  renderQuestion();
+  secondsLeft=900;
+  timer=setInterval(()=>{
+    secondsLeft--;
+    $('#timeLeft').textContent=`${Math.floor(secondsLeft/60)}:${String(secondsLeft%60).padStart(2,'0')}`;
+    if(secondsLeft<=0) finish();
+  },1000);
+}
+
+function finish(){
+  clearInterval(timer);
+  let score=0;
+  for(const q of QUESTIONS){
+    if(q.type==="mcq"){ if(answers[q.id]===q.a) score++; }
+    else { if(Number(answers[q.id])===q.a) score++; }
+  }
+  const percent=Math.round(score/QUESTIONS.length*100);
+  $('#exam').classList.add('hidden'); $('#result').classList.remove('hidden');
+  $('#studentSummary').textContent=`You scored ${score}/${QUESTIONS.length} (${percent}%).`;
+  $('#nextSteps').innerHTML=`<p>Great effort! With regular support, you can strengthen core science knowledge and exam technique.</p>`;
+  $('#nextSteps').classList.remove('hidden');
+
+  const summary=`KS3 Science Report
+Student: ${$('#studentName').value}
+Year group: ${$('#yearGroup').value}
+Parent email: ${$('#parentEmail').value}
+Score: ${score}/${QUESTIONS.length} (${percent}%)`;
+  $('#teacherSummary').textContent=summary;
+
+  const fd=new FormData();
+  fd.append("data",JSON.stringify({meta:{student:$('#studentName').value,yearGroup:$('#yearGroup').value,parentEmail:$('#parentEmail').value},summary}));
+  fetch(GAS_URL,{method:"POST",mode:"no-cors",body:fd});
+}
+
+// events
+$('#startBtn').onclick=start;
+$('#prevBtn').onclick=()=>{if(idx>0){idx--;renderQuestion();}};
+$('#nextBtn').onclick=()=>{if(idx<QUESTIONS.length-1){idx++;renderQuestion();}};
+$('#finishBtn').onclick=()=>finish();
+</script>
+</body>
+</html>
