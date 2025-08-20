@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GCSE Maths Assessment</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .toast{position:fixed;right:1rem;bottom:1rem;background:#111827;color:#fff;
+      padding:0.6rem 0.8rem;border-radius:0.75rem;box-shadow:0 10px 20px rgba(0,0,0,.2);
+      opacity:0;transform:translateY(10px);transition:.3s}
+    .toast.show{opacity:1;transform:translateY(0)}
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <div class="max-w-3xl mx-auto p-4 md:p-8">
+    <header class="mb-6">
+      <h1 class="text-2xl md:text-3xl font-bold">GCSE Maths Assessment</h1>
+      <p class="text-sm text-slate-600">Mixed foundation/higher sampler with auto-marking and email report.</p>
+    </header>
+
+    <!-- Setup -->
+    <section id="setup" class="bg-white rounded-2xl shadow p-4 md:p-6 space-y-4">
+      <div class="grid md:grid-cols-2 gap-4">
+        <label class="block">
+          <span class="text-sm font-medium">Student name</span>
+          <input id="studentName" class="mt-1 w-full rounded-xl border px-3 py-2" required />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium">Year group</span>
+          <input id="yearGroup" class="mt-1 w-full rounded-xl border px-3 py-2" placeholder="e.g. Year 10"/>
+        </label>
+        <label class="block md:col-span-2">
+          <span class="text-sm font-medium">Parent email</span>
+          <input id="parentEmail" type="email" class="mt-1 w-full rounded-xl border px-3 py-2" required />
+        </label>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button id="startBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white">Start assessment</button>
+      </div>
+    </section>
+
+    <!-- Exam -->
+    <section id="exam" class="hidden mt-6 bg-white rounded-2xl shadow p-4 md:p-6">
+      <div class="flex items-center justify-between">
+        <div class="text-sm"><span class="font-semibold">Student:</span> <span id="liveStudent">—</span></div>
+        <div class="text-sm"><span class="font-semibold">Time left:</span> <span id="timeLeft">—:—</span></div>
+      </div>
+      <div id="qContainer" class="mt-4"></div>
+      <div class="flex items-center justify-between mt-6">
+        <button id="prevBtn" class="px-4 py-2 rounded-xl bg-slate-200">Prev</button>
+        <div class="text-sm">Question <span id="qIndex">1</span> / <span id="qTotal">—</span></div>
+        <button id="nextBtn" class="px-4 py-2 rounded-xl bg-slate-200">Next</button>
+      </div>
+      <div class="mt-6 flex gap-3">
+        <button id="finishBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white">Finish & submit</button>
+      </div>
+    </section>
+
+    <!-- Result -->
+    <section id="result" class="hidden mt-6 bg-white rounded-2xl shadow p-4 md:p-6 space-y-4">
+      <h2 class="text-xl font-semibold">Assessment complete</h2>
+      <div id="studentSummary" class="text-slate-700 text-sm"></div>
+      <div id="nextSteps" class="rounded-xl border bg-emerald-50 text-emerald-900 p-4 text-sm hidden"></div>
+      <div id="teacherSummary" class="bg-slate-50 border rounded-xl p-4 text-sm"></div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast">Sending result…</div>
+
+<script>
+// GAS endpoint
+const GAS_URL = "https://script.google.com/macros/s/AKfycbypcYcwH-GDz4nxoAtZK0wKRbWxlxengilkvRIwSo8q-AhhfLaOZP-zhzHbPInR3Z0tzA/exec";
+
+// GCSE Maths bank (10 Q)
+const BANK = [
+  {id:"N1",topic:"Number",type:"num",q:"Evaluate: 3^2 + 4^2",a:25},
+  {id:"N2",topic:"Number",type:"num",q:"Work out: 7 × 12",a:84},
+  {id:"ALG1",topic:"Algebra",type:"num",q:"Solve for x: 2x + 5 = 17",a:6},
+  {id:"ALG2",topic:"Algebra",type:"mcq",q:"Expand: (x+3)(x+2)",opts:["x^2+5x+6","x^2+6x+5","x^2+3x+2","x^2+2x+3"],a:0},
+  {id:"GEO1",topic:"Geometry",type:"mcq",q:"Interior angle of a regular hexagon is",opts:["108°","120°","135°","150°"],a:1},
+  {id:"STAT1",topic:"Statistics",type:"mcq",q:"Median of 2, 5, 7, 8, 12",opts:["5","7","8","12"],a:1},
+  {id:"PCT1",topic:"Percentages",type:"num",q:"Find 15% of 200",a:30},
+  {id:"GRAD1",topic:"Graphs",type:"num",q:"Gradient between (1,2) and (3,6)",a:2},
+  {id:"PWR1",topic:"Powers",type:"num",q:"Evaluate 2^5",a:32},
+  {id:"PROB1",topic:"Probability",type:"mcq",q:"P(odd) on a fair die",opts:["1/2","1/3","2/3","1/6"],a:0}
+];
+
+const $ = s=>document.querySelector(s);
+let QUESTIONS=[],idx=0,answers={},secondsLeft=1200,timer=null; // 20 minutes
+
+function renderQuestion(){
+  const q=QUESTIONS[idx];
+  $('#qIndex').textContent=idx+1; $('#qTotal').textContent=QUESTIONS.length;
+  let h=`<div class="text-sm text-slate-500">${q.topic}</div><h3 class="text-lg font-medium mt-1">${q.q}</h3>`;
+  if(q.type==="mcq"){
+    h+=q.opts.map((opt,i)=>`<label class="block p-2 rounded border mt-3"><input type="radio" name="ans" value="${i}" ${String(answers[q.id])===String(i)?"checked":""}/> ${opt}</label>`).join("");
+  } else {
+    h+=`<input id="numAns" class="mt-3 w-full rounded border px-3 py-2" value="${answers[q.id]||""}" placeholder="Type your answer"/>`;
+  }
+  $('#qContainer').innerHTML=h;
+  if(q.type==="mcq") document.querySelectorAll('input[name="ans"]').forEach(r=>r.onchange=e=>answers[q.id]=+e.target.value);
+  else $('#numAns').oninput=e=>answers[q.id]=e.target.value;
+}
+
+function toGrade(p){
+  if(p>=89) return 9;
+  if(p>=80) return 8;
+  if(p>=70) return 7;
+  if(p>=60) return 6;
+  if(p>=50) return 5;
+  if(p>=40) return 4;
+  if(p>=30) return 3;
+  if(p>=20) return 2;
+  return 1;
+}
+
+function joinUs(percent, grade){
+  const common = [
+    "Lessons recorded so you can revisit tricky topics.",
+    "Personalised homework with quick feedback.",
+    "Confidence building with step-by-step methods."
+  ];
+  const value = [
+    "Small-group tuition from £15/hour.",
+    "Targeting a 2-grade improvement with consistent effort."
+  ];
+  const ul = arr => "<ul class='list-disc pl-5 mt-2'>" + arr.map(x=>`<li>${x}</li>`).join("") + "</ul>";
+  if(grade<=3) return `<h3 class="font-semibold">Let’s build strong foundations — join us!</h3><p>You scored ${percent}% (est. Grade ${grade}). We’ll focus on number fluency, algebra basics and exam technique.</p>${ul(common.concat(value))}`;
+  if(grade<=5) return `<h3 class="font-semibold">You’re close to a strong pass — we can get you there.</h3><p>${percent}% (Grade ${grade}). We’ll target weaker topics and timed practice.</p>${ul(common.concat(value))}`;
+  if(grade<=7) return `<h3 class="font-semibold">Push for Grade 8 — refine and master.</h3><p>${percent}% (Grade ${grade}). We’ll sharpen algebra, problem-solving and non-calculator fluency.</p>${ul(common.concat(value))}`;
+  return `<h3 class="font-semibold">Stretch to Grade 9 with expert coaching.</h3><p>${percent}% (Grade ${grade}). Let’s polish reasoning, proofs and timing to reach the top percentile.</p>${ul(common.concat(value))}`;
+}
+
+function start(){
+  QUESTIONS=[...BANK];
+  idx=0; answers={};
+  $('#setup').classList.add('hidden');
+  $('#exam').classList.remove('hidden');
+  $('#liveStudent').textContent=$('#studentName').value;
+  renderQuestion();
+  secondsLeft=1200;
+  timer=setInterval(()=>{
+    secondsLeft--;
+    $('#timeLeft').textContent=`${Math.floor(secondsLeft/60)}:${String(secondsLeft%60).padStart(2,'0')}`;
+    if(secondsLeft<=0) finish();
+  },1000);
+}
+
+function finish(){
+  clearInterval(timer);
+  let score=0;
+  for(const q of QUESTIONS){
+    if(q.type==="mcq"){ if(Number(answers[q.id])===q.a) score++; }
+    else { if(Number(answers[q.id])===q.a) score++; }
+  }
+  const percent=Math.round(score/QUESTIONS.length*100);
+  const grade=toGrade(percent);
+
+  $('#exam').classList.add('hidden'); $('#result').classList.remove('hidden');
+  $('#studentSummary').textContent=`You scored ${score}/${QUESTIONS.length} (${percent}%). Estimated grade: ${grade}.`;
+  $('#nextSteps').innerHTML=joinUs(percent, grade); $('#nextSteps').classList.remove('hidden');
+
+  const summary=`GCSE Maths Report
+Student: ${$('#studentName').value}
+Year group: ${$('#yearGroup').value}
+Parent email: ${$('#parentEmail').value}
+Score: ${score}/${QUESTIONS.length} (${percent}%)
+Estimated Grade (9–1): ${grade}`;
+
+  $('#teacherSummary').textContent=summary;
+
+  const fd=new FormData();
+  fd.append("data",JSON.stringify({
+    meta:{student:$('#studentName').value,yearGroup:$('#yearGroup').value,parentEmail:$('#parentEmail').value},
+    percent, grade, summary
+  }));
+  fetch(GAS_URL,{method:"POST",mode:"no-cors",body:fd});
+}
+
+// events
+$('#startBtn').onclick=start;
+$('#prevBtn').onclick=()=>{if(idx>0){idx--;renderQuestion();}};
+$('#nextBtn').onclick=()=>{if(idx<QUESTIONS.length-1){idx++;renderQuestion();}};
+$('#finishBtn').onclick=()=>finish();
+</script>
+</body>
+</html>
