@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GCSE Science Assessment</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .toast{position:fixed;right:1rem;bottom:1rem;background:#111827;color:#fff;
+      padding:0.6rem 0.8rem;border-radius:0.75rem;box-shadow:0 10px 20px rgba(0,0,0,.2);
+      opacity:0;transform:translateY(10px);transition:.3s}
+    .toast.show{opacity:1;transform:translateY(0)}
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <div class="max-w-3xl mx-auto p-4 md:p-8">
+    <header class="mb-6">
+      <h1 class="text-2xl md:text-3xl font-bold">GCSE Science Assessment</h1>
+      <p class="text-sm text-slate-600">Combined science sampler (Biology, Chemistry, Physics) with auto-marking and email report.</p>
+    </header>
+
+    <!-- Setup -->
+    <section id="setup" class="bg-white rounded-2xl shadow p-4 md:p-6 space-y-4">
+      <div class="grid md:grid-cols-2 gap-4">
+        <label class="block">
+          <span class="text-sm font-medium">Student name</span>
+          <input id="studentName" class="mt-1 w-full rounded-xl border px-3 py-2" required />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium">Year group</span>
+          <input id="yearGroup" class="mt-1 w-full rounded-xl border px-3 py-2" placeholder="e.g. Year 10"/>
+        </label>
+        <label class="block md:col-span-2">
+          <span class="text-sm font-medium">Parent email</span>
+          <input id="parentEmail" type="email" class="mt-1 w-full rounded-xl border px-3 py-2" required />
+        </label>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button id="startBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white">Start assessment</button>
+      </div>
+    </section>
+
+    <!-- Exam -->
+    <section id="exam" class="hidden mt-6 bg-white rounded-2xl shadow p-4 md:p-6">
+      <div class="flex items-center justify-between">
+        <div class="text-sm"><span class="font-semibold">Student:</span> <span id="liveStudent">—</span></div>
+        <div class="text-sm"><span class="font-semibold">Time left:</span> <span id="timeLeft">—:—</span></div>
+      </div>
+      <div id="qContainer" class="mt-4"></div>
+      <div class="flex items-center justify-between mt-6">
+        <button id="prevBtn" class="px-4 py-2 rounded-xl bg-slate-200">Prev</button>
+        <div class="text-sm">Question <span id="qIndex">1</span> / <span id="qTotal">—</span></div>
+        <button id="nextBtn" class="px-4 py-2 rounded-xl bg-slate-200">Next</button>
+      </div>
+      <div class="mt-6 flex gap-3">
+        <button id="finishBtn" class="px-4 py-2 rounded-xl bg-blue-600 text-white">Finish & submit</button>
+      </div>
+    </section>
+
+    <!-- Result -->
+    <section id="result" class="hidden mt-6 bg-white rounded-2xl shadow p-4 md:p-6 space-y-4">
+      <h2 class="text-xl font-semibold">Assessment complete</h2>
+      <div id="studentSummary" class="text-slate-700 text-sm"></div>
+      <div id="nextSteps" class="rounded-xl border bg-emerald-50 text-emerald-900 p-4 text-sm hidden"></div>
+      <div id="teacherSummary" class="bg-slate-50 border rounded-xl p-4 text-sm"></div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast">Sending result…</div>
+
+<script>
+// GAS endpoint
+const GAS_URL = "https://script.google.com/macros/s/AKfycbypcYcwH-GDz4nxoAtZK0wKRbWxlxengilkvRIwSo8q-AhhfLaOZP-zhzHbPInR3Z0tzA/exec";
+
+// GCSE Combined Science bank (10 Q: Bio/Chem/Phys)
+const BANK = [
+  {id:"Bio1",topic:"Biology",type:"mcq",q:"Which organelle is the site of aerobic respiration?",opts:["Chloroplast","Nucleus","Mitochondrion","Ribosome"],a:2},
+  {id:"Bio2",topic:"Biology",type:"mcq",q:"Enzyme that breaks down starch:",opts:["Protease","Amylase","Lipase","Catalase"],a:1},
+  {id:"Chem1",topic:"Chemistry",type:"mcq",q:"Relative charge of an electron is",opts:["+1","0","-1","+2"],a:2},
+  {id:"Chem2",topic:"Chemistry",type:"mcq",q:"Group 1 elements are called",opts:["Halogens","Alkali metals","Noble gases","Transition metals"],a:1},
+  {id:"Chem3",topic:"Chemistry",type:"num",q:"How many protons in carbon-12?",a:6},
+  {id:"Phys1",topic:"Physics",type:"num",q:"Resultant force: 12 N right, 5 N left → (N)",a:7},
+  {id:"Phys2",topic:"Physics",type:"num",q:"Speed = distance/time: 200 m in 25 s → (m/s)",a:8},
+  {id:"Phys3",topic:"Physics",type:"mcq",q:"Energy unit is",opts:["Watt","Joule","Newton","Volt"],a:1},
+  {id:"Bio3",topic:"Biology",type:"mcq",q:"Which transports water in plants?",opts:["Xylem","Phloem","Stomata","Epidermis"],a:0},
+  {id:"Chem4",topic:"Chemistry",type:"mcq",q:"pH of a neutral solution is",opts:["0","3","7","14"],a:2}
+];
+
+const $ = s=>document.querySelector(s);
+let QUESTIONS=[],idx=0,answers={},secondsLeft=1200,timer=null; // 20 minutes
+
+function renderQuestion(){
+  const q=QUESTIONS[idx];
+  $('#qIndex').textContent=idx+1; $('#qTotal').textContent=QUESTIONS.length;
+  let h=`<div class="text-sm text-slate-500">${q.topic}</div><h3 class="text-lg font-medium mt-1">${q.q}</h3>`;
+  if(q.type==="mcq"){
+    h+=q.opts.map((opt,i)=>`<label class="block p-2 rounded border mt-3"><input type="radio" name="ans" value="${i}" ${String(answers[q.id])===String(i)?"checked":""}/> ${opt}</label>`).join("");
+  } else {
+    h+=`<input id="numAns" class="mt-3 w-full rounded border px-3 py-2" value="${answers[q.id]||""}" placeholder="Type your answer"/>`;
+  }
+  $('#qContainer').innerHTML=h;
+  if(q.type==="mcq") document.querySelectorAll('input[name="ans"]').forEach(r=>r.onchange=e=>answers[q.id]=+e.target.value);
+  else $('#numAns').oninput=e=>answers[q.id]=e.target.value;
+}
+
+function toGrade(p){
+  if(p>=89) return 9;
+  if(p>=80) return 8;
+  if(p>=70) return 7;
+  if(p>=60) return 6;
+  if(p>=50) return 5;
+  if(p>=40) return 4;
+  if(p>=30) return 3;
+  if(p>=20) return 2;
+  return 1;
+}
+
+function joinUs(percent, grade){
+  const common = [
+    "Lessons recorded so you can revisit tricky topics.",
+    "Personalised homework with quick feedback.",
+    "Confidence building with step-by-step methods."
+  ];
+  const value = [
+    "Small-group tuition from £15/hour.",
+    "Targeting a 2-grade improvement with consistent effort."
+  ];
+  const ul = arr => "<ul class='list-disc pl-5 mt-2'>" + arr.map(x=>`<li>${x}</li>`).join("") + "</ul>";
+  if(grade<=3) return `<h3 class="font-semibold">Let’s build strong foundations — join us!</h3><p>You scored ${percent}% (est. Grade ${grade}). We’ll focus on core knowledge and exam technique.</p>${ul(common.concat(value))}`;
+  if(grade<=5) return `<h3 class="font-semibold">You’re close to a strong pass — we can get you there.</h3><p>${percent}% (Grade ${grade}). Target weaker areas with guided practice.</p>${ul(common.concat(value))}`;
+  if(grade<=7) return `<h3 class="font-semibold">Push for Grade 8 — refine and master.</h3><p>${percent}% (Grade ${grade}). Sharpen application and multi-step problems.</p>${ul(common.concat(value))}`;
+  return `<h3 class="font-semibold">Stretch to Grade 9 with expert coaching.</h3><p>${percent}% (Grade ${grade}). Let’s polish reasoning and timing to reach the top percentile.</p>${ul(common.concat(value))}`;
+}
+
+function start(){
+  QUESTIONS=[...BANK];
+  idx=0; answers={};
+  $('#setup').classList.add('hidden');
+  $('#exam').classList.remove('hidden');
+  $('#liveStudent').textContent=$('#studentName').value;
+  renderQuestion();
+  secondsLeft=1200;
+  timer=setInterval(()=>{
+    secondsLeft--;
+    $('#timeLeft').textContent=`${Math.floor(secondsLeft/60)}:${String(secondsLeft%60).padStart(2,'0')}`;
+    if(secondsLeft<=0) finish();
+  },1000);
+}
+
+function finish(){
+  clearInterval(timer);
+  let score=0;
+  for(const q of QUESTIONS){
+    if(q.type==="mcq"){ if(Number(answers[q.id])===q.a) score++; }
+    else { if(Number(answers[q.id])===q.a) score++; }
+  }
+  const percent=Math.round(score/QUESTIONS.length*100);
+  const grade=toGrade(percent);
+
+  $('#exam').classList.add('hidden'); $('#result').classList.remove('hidden');
+  $('#studentSummary').textContent=`You scored ${score}/${QUESTIONS.length} (${percent}%). Estimated grade: ${grade}.`;
+  $('#nextSteps').innerHTML=joinUs(percent, grade); $('#nextSteps').classList.remove('hidden');
+
+  const summary=`GCSE Science Report
+Student: ${$('#studentName').value}
+Year group: ${$('#yearGroup').value}
+Parent email: ${$('#parentEmail').value}
+Score: ${score}/${QUESTIONS.length} (${percent}%)
+Estimated Grade (9–1): ${grade}`;
+
+  $('#teacherSummary').textContent=summary;
+
+  const fd=new FormData();
+  fd.append("data",JSON.stringify({
+    meta:{student:$('#studentName').value,yearGroup:$('#yearGroup').value,parentEmail:$('#parentEmail').value},
+    percent, grade, summary
+  }));
+  fetch(GAS_URL,{method:"POST",mode:"no-cors",body:fd});
+}
+
+// events
+$('#startBtn').onclick=start;
+$('#prevBtn').onclick=()=>{if(idx>0){idx--;renderQuestion();}};
+$('#nextBtn').onclick=()=>{if(idx<QUESTIONS.length-1){idx++;renderQuestion();}};
+$('#finishBtn').onclick=()=>finish();
+</script>
+</body>
+</html>
